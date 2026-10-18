@@ -1,0 +1,97 @@
+grammar AsciiChemCore version "0.1.0" {
+  ## AsciiChem linear-chemistry core (P0 feasibility slice, issue 96).
+  ## Covers: molecules (coefficients), plain / hydrogen / prefixed
+  ## atoms, isotope + sub/superscript markers, charges, oxidation
+  ## states, bracket groups with multiplicity, bonds, reactions with
+  ## conditions. Crystals, zmatrix, spectrum, mechanism, electron
+  ## configs, annotations and Lewis markers land in P1.
+
+  entry formula: formula_nodes
+
+  formula_nodes = 1*( reaction / molecule )
+
+  ## A reaction: reactants, arrow (optionally with conditions above or
+  ## below), products. Terms are whitespace-separated molecules.
+  reaction = terms space arrow space terms
+
+  terms = molecule 0*( space "+" space molecule )
+
+  space = " "
+
+  ## Conditions ride ABOVE then BELOW the kind, per the DSL order.
+  arrow = arrow_kind [ "[" until "]" "]" ] [ "[" until "]" "]" ]
+
+  arrow_kind = ( "<=>" / "<->" / "->" / "<-" ) as kind
+
+  ## A molecule: optional stoichiometric coefficient, then units.
+  molecule = [ ( 1*(%x30-39) &( "(" / "[" / "{" / %x41-5A ) ) as coefficient ] 1*( unit / bond )
+
+  ## Bonds, longest first so `##` beats `#`; `->` is reserved for
+  ## reactions.
+  bond = ( "##" as kind ) / ( ">-" as kind ) / ( "-<" as kind ) / ( "~>" as kind ) / ( "~~" as kind ) / ( "#" as kind ) / ( "=" as kind ) / ( "-" as kind )
+
+  ## Units: prefixed (isotope) atoms, bracket groups, hydrogen
+  ## (bare-digit subscripts allowed), plain atoms.
+  unit = prefixed_atom / group / hydrogen_atom / plain_atom
+
+  ## Prefix isotope: ^14C or _14C — the marker binds to the atom, the
+  ## core semantic fix over AsciiMath.
+  prefixed_atom = ( ( "^" / "_" ) 1*(%x30-39) ) as isotope element atom_suffix
+
+  ## Bracket group: ( ... ) [ ... ] { ... } with optional multiplicity.
+  group = ( group_open 1*( group_unit ) group_close [ "_" 1*(%x30-39) as multiplicity ] ) as group
+
+  group_open = ( "(" as open_bracket ) / ( "[" as open_bracket ) / ( "{" as open_bracket )
+
+  group_close = ( ")" as close_bracket ) / ( "]" as close_bracket ) / ( "}" as close_bracket )
+
+  ## Inside a group: nested reactions, molecules and groups recurse.
+  group_unit = reaction / molecule / group
+
+  ## Hydrogen: bare digits after H are subscripts (H cannot ring-close),
+  ## but H must not steal the H of He, Hf...
+  hydrogen_atom = ( "H" !( %x61-7A ) [ h_subscript ] [ "^" superscript_value ] ) as element
+
+  ## Explicit _digits or bare digits.
+  h_subscript = ( "_" subscript_value / 1*(%x30-39) ) as subscript
+
+  ## Ring closures: bare digits after a non-H atom (SMILES-style).
+  plain_atom = element atom_suffix [ 1*(%x30-39) as ring_closures ]
+
+  element = ( %x41-5A [ %x61-7A ] ) as element
+
+  ## Sub/superscript suffixes on plain and prefixed atoms.
+  atom_suffix = [ "_" subscript_value as subscript ] [ "^" superscript_value as superscript ]
+
+  subscript_value = ( "{" until "}" ) / 1*(%x30-39)
+
+  superscript_value = ( oxidation_state / charge )
+
+  ## Charges: 2+, +2, 2 (bare digits fall through to the same capture).
+  charge = ( 1*(%x30-39) [ "+" / "-" ] ) / ( ( "+" / "-" ) [ 1*(%x30-39) ] )
+
+  ## Oxidation state: (IV), (II)...
+  oxidation_state = "(" 1*( %x49 / %x56 / %x58 / %x4C / %x43 / %x44 ) ")"
+
+  test formula {
+    accept "H_2O"
+    accept "H2O"
+    accept "Ca^2+"
+    accept "SO_4^2-"
+    accept "C1-C-C-C-C-C1"
+    accept "CH_3-CH_2-OH"
+    accept "2H_2 + O_2 -> 2H_2O"
+    accept "N_2 + 3H_2 <=>[Fe][400C] 2NH_3"
+    accept "Ca(OH)_2"
+    accept "CC(=O)OC1=CC=CC=C1C(=O)O"
+    accept "Ca^2+ + CO_3^2- -> CaCO_3"
+    accept "Fe(IV)"
+    accept "_14C"
+    accept "^14C"
+    reject ""
+    reject "???"
+    reject "C(=O"
+    reject "+ H_2O"
+    reject "H_"
+  }
+}
