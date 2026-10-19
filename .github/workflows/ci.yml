@@ -35,7 +35,7 @@ jobs:
         run: |
           cd ../parsanol-ruby
           PG_ARTIFACT="$GITHUB_WORKSPACE/../pubid-grammar/artifacts/parg.json" \
-            bundle exec ruby -e 'exit Parsanol::PARG::CLI.new(["test", File.join(Dir.pwd, "..", "asciichem-parg", "grammar", "asciichem.parg")]).run'
+            bundle exec ruby -rparsanol -e 'exit Parsanol::PARG::CLI.new(["test", File.join(Dir.pwd, "..", "asciichem-parg", "grammar", "asciichem.parg")]).run'
       - name: Corpus parity (parse/reject vs shared corpus)
         run: |
           cd ../parsanol-ruby
