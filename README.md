@@ -33,5 +33,14 @@ stays the behavioural arbiter.
 
 ## Status
 
-Scaffold. The grammar lands with the PARG migration (issue #96, phase
-P1); the P0 feasibility spike runs the linear-chemistry slice first.
+**P1a landed**: the complete grammar (`grammar/asciichem.parg`) —
+linear chemistry plus every beyond-formulas construct — with
+corpus parity: all 227 parse/reject fixtures in the shared
+conformance corpus behave identically under the PARG artifact.
+Acceptance suite: the grammar's inline `test` block (run:
+`parsanol parg test grammar/asciichem.parg`); corpus parity:
+`scripts/corpus-parity.rb` (both enforced in CI).
+
+Remaining: P1b — the model-transform seam in the implementations
+(consume the PARG trees to build the shared `Model`), then the
+default-engine switch (P2).

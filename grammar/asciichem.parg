@@ -1,34 +1,57 @@
-grammar AsciiChemCore version "0.1.0" {
-  ## AsciiChem linear-chemistry core (P0 feasibility slice, issue 96).
-  ## Covers: molecules (coefficients), plain / hydrogen / prefixed
-  ## atoms, isotope + sub/superscript markers, charges, oxidation
-  ## states, bracket groups with multiplicity, bonds, reactions with
-  ## conditions. Crystals, zmatrix, spectrum, mechanism, electron
-  ## configs, annotations and Lewis markers land in P1.
+grammar AsciiChemCore version "0.2.0" {
+  ## The AsciiChem syntax — full grammar (P1a, asciichem-ruby#96).
+  ## Acceptance parity with the reference DSL is arbitrated by the
+  ## shared conformance corpus; capture names mirror the Ruby DSL so
+  ## the P1b model-transform seam can consume the trees directly.
+  ##
+  ## Language notes (P0 findings): entries reference rules; sequences
+  ## take no trailing capture (wrap in parens); rep bodies are
+  ## single-element; [ ] is the option syntax so literal brackets are
+  ## strings; until is exclusive (restate the closer).
 
-  entry formula: formula_nodes
+  entry formula: formula
 
-  formula_nodes = 1*( reaction / molecule )
+  ## Leading/trailing whitespace is permitted (DSL spaces?).
+  formula = [ 1*( ws ) ] formula_nodes [ 1*( ws ) ]
 
-  ## A reaction: reactants, arrow (optionally with conditions above or
-  ## below), products. Terms are whitespace-separated molecules.
-  reaction = terms space arrow space terms
+  ws = ( " " / %x09 / %x0A / %x0D )
 
-  terms = molecule 0*( space "+" space molecule )
+  ## Top-level nodes, DSL ordered-choice order. A reaction followed by
+  ## further arrow-terms is a cascade; the tail is captured so the
+  ## model layer can promote it.
+  formula_node = ( reaction [ 1*( arrow [ ws1 ] terms ) ] ) / electron_config / crystal / spectrum / calculation / zmatrix / mechanism / annotated_molecule / molecule / embedded_math / ( "\"" until "\"" "\"" ) as text_run
 
-  space = " "
+  formula_nodes = formula_node 0*( [ 1*( ws ) ] formula_node )
 
-  ## Conditions ride ABOVE then BELOW the kind, per the DSL order.
+  # -- reactions ---------------------------------------------------------
+
+  ## Reactants, arrow (with optional above/below conditions), products;
+  ## `+` joins molecules within a term.
+  ## Cascades: further arrow-terms repeat; segment captures let the
+  ## model layer promote multi-step chains.
+  reaction = terms 0*( space ) arrow 0*( space ) terms 0*( cascade_segment )
+
+  cascade_segment = ( [ ws1 ] arrow [ ws1 ] terms ) as cascade_segment
+
+  terms = molecule 0*( 0*( space ) "+" 0*( space ) molecule )
+
   arrow = arrow_kind [ "[" until "]" "]" ] [ "[" until "]" "]" ]
 
   arrow_kind = ( "<=>" / "<->" / "->" / "<-" ) as kind
 
-  ## A molecule: optional stoichiometric coefficient, then units.
-  molecule = [ ( 1*(%x30-39) &( "(" / "[" / "{" / %x41-5A ) ) as coefficient ] 1*( unit / bond )
+  space = ( " " / %x09 )
 
-  ## Bonds, longest first so `##` beats `#`; `->` is reserved for
-  ## reactions.
-  bond = ( "##" as kind ) / ( ">-" as kind ) / ( "-<" as kind ) / ( "~>" as kind ) / ( "~~" as kind ) / ( "#" as kind ) / ( "=" as kind ) / ( "-" as kind )
+  ## A molecule: stereochemistry prefix, optional coefficient, units.
+  molecule = [ stereo_prefix ] [ coefficient ] 1*( unit / bond )
+
+  ## `(R)-` style prefixes; letters a/b are the alpha/beta shorthand.
+  stereo_prefix = "(" stereo_letter ")" "-"
+
+  stereo_letter = ( "alpha" / "beta" / "R" / "S" / "E" / "Z" / "a" / "b" )
+
+  ## Coefficient: digits only when an element or bracket follows (else
+  ## the digits are subscripts/rings).
+  coefficient = ( 1*(%x30-39) &( "(" / "[" / "{" / %x41-5A ) ) as coefficient
 
   ## Units: prefixed (isotope) atoms, bracket groups, hydrogen
   ## (bare-digit subscripts allowed), plain atoms.
@@ -36,36 +59,39 @@ grammar AsciiChemCore version "0.1.0" {
 
   ## Prefix isotope: ^14C or _14C — the marker binds to the atom, the
   ## core semantic fix over AsciiMath.
-  prefixed_atom = ( ( "^" / "_" ) 1*(%x30-39) ) as isotope element atom_suffix
+  prefixed_atom = [ lewis_prefix ] ( ( "^" / "_" ) 1*(%x30-39) ) as isotope element atom_suffix [ lewis_radicals ] atom_annotation
 
   ## Bracket group: ( ... ) [ ... ] { ... } with optional multiplicity.
+  ## Captured as a subtree: the attachment bond stays inside.
   group = ( group_open 1*( group_unit ) group_close [ "_" 1*(%x30-39) as multiplicity ] ) as group
 
   group_open = ( "(" as open_bracket ) / ( "[" as open_bracket ) / ( "{" as open_bracket )
 
   group_close = ( ")" as close_bracket ) / ( "]" as close_bracket ) / ( "}" as close_bracket )
 
-  ## Inside a group: nested reactions, molecules and groups recurse.
-  group_unit = reaction / molecule / group
+  ## Inside a group: nested reactions, molecules, groups, electron
+  ## configs, embedded math, and quoted text recurse.
+  group_unit = reaction / electron_config / molecule / group / embedded_math / group_text_run
+
+  group_text_run = "\"" until "\"" "\""
 
   ## Hydrogen: bare digits after H are subscripts (H cannot ring-close),
   ## but H must not steal the H of He, Hf...
-  hydrogen_atom = ( "H" !( %x61-7A ) [ h_subscript ] [ "^" superscript_value ] ) as element
+  hydrogen_atom = [ lewis_prefix ] ( "H" !( %x61-7A ) [ h_subscript ] [ "^" superscript_value ] [ lewis_radicals ] atom_annotation ) as element
 
   ## Explicit _digits or bare digits.
   h_subscript = ( "_" subscript_value / 1*(%x30-39) ) as subscript
 
-  ## Ring closures: bare digits after a non-H atom (SMILES-style).
-  plain_atom = element atom_suffix [ 1*(%x30-39) as ring_closures ]
+  plain_atom = [ lewis_prefix ] element atom_suffix [ lewis_radicals ] [ 1*(%x30-39) as ring_closures ] atom_annotation
 
   element = ( %x41-5A [ %x61-7A ] ) as element
 
   ## Sub/superscript suffixes on plain and prefixed atoms.
   atom_suffix = [ "_" subscript_value as subscript ] [ "^" superscript_value as superscript ]
 
-  subscript_value = ( "{" until "}" ) / 1*(%x30-39)
+  subscript_value = ( "{" until "}" "}" ) / 1*(%x30-39)
 
-  superscript_value = ( oxidation_state / charge )
+  superscript_value = ( "{" until "}" "}" ) / ( oxidation_state / charge )
 
   ## Charges: 2+, +2, 2 (bare digits fall through to the same capture).
   charge = ( 1*(%x30-39) [ "+" / "-" ] ) / ( ( "+" / "-" ) [ 1*(%x30-39) ] )
@@ -73,25 +99,120 @@ grammar AsciiChemCore version "0.1.0" {
   ## Oxidation state: (IV), (II)...
   oxidation_state = "(" 1*( %x49 / %x56 / %x58 / %x4C / %x43 / %x44 ) ")"
 
+  ## Lewis markers: leading colons = lone pairs; trailing dots =
+  ## radical electrons.
+  lewis_prefix = 1*( ":" ) as lone_pairs
+
+  lewis_radicals = 1*( "." ) as radical_electrons
+
+  ## Atom annotations, DSL order: coordinates, parity, multiplicity,
+  ## title, fractional coordinates.
+  atom_annotation = [ coordinate_annotation ] [ parity_annotation ] [ multiplicity_annotation ] [ title_annotation ] [ fractional_annotation ]
+
+  coordinate_annotation = "@(" float_number as x2 "," float_number as y2 [ "," float_number as z2 ] ")"
+
+  parity_annotation = "@" ( "R" / "S" ) as atom_parity
+
+  multiplicity_annotation = "@m(" 1*(%x30-39) as spin_multiplicity ")"
+
+  title_annotation = "@t(" "\"" until "\"" "\"" ")"
+
+  fractional_annotation = "@f(" float_number as x_fract "," float_number as y_fract "," float_number as z_fract ")"
+
+  float_number = [ "-" ] 1*(%x30-39) [ "." 0*(%x30-39) ]
+
+  # -- bonds ---------------------------------------------------------------
+
+  ## Bonds, longest first so `##` beats `#`; `->` is reserved for
+  ## reactions.
+  bond = ( "##" as kind ) / ( ">-" as kind ) / ( "-<" as kind ) / ( "~>" as kind ) / ( "~~" as kind ) / ( "#" as kind ) / ( "=" as kind ) / ( "-" as kind )
+
+  # -- beyond-formulas constructs -----------------------------------------
+
+  ## crystal[Name](a=X,b=Y,sg=SG){atoms with @f(x,y,z)}
+  crystal = ( "crystal" [ ( "[" until "]" ) as crystal_name "]" ] [ ( "(" until ")" ) as crystal_params ")" ] [ ( "{" until "}" ) as crystal_body "}" ] ) as crystal_node
+
+  ## spectrum[type](params){peak data}
+  spectrum = ( "spectrum" [ ( "[" until "]" ) as spectrum_type "]" ] [ ( "(" until ")" ) as spectrum_params ")" ] [ ( "{" until "}" ) as spectrum_body "}" ] ) as spectrum_node
+
+  ## calc(method/basis){key: value units}
+  calculation = ( "calc" [ ( "(" until ")" ) as calc_params ")" ] [ ( "{" until "}" ) as calc_body "}" ] ) as calc_node
+
+  ## zmatrix{lines}
+  zmatrix = ( "zmatrix" [ ( "{" until "}" ) as zmatrix_body "}" ] ) as zmatrix_node
+
+  ## mechanism{steps}
+  mechanism = ( "mechanism" [ ( "{" until "}" ) as mechanism_body "}" ] ) as mechanism_node
+
+  # -- electron configuration ----------------------------------------------
+
+  ## `1s2 2s2 2p6` — at least two orbital terms (DSL repeat(2)).
+  electron_config = ( 2*( orbital "^" 1*(%x30-39) as occupancy [ ws1 ] ) ) as electron_config
+
+  orbital = ( 1*(%x30-39) ( "s" / "p" / "d" / "f" / "g" / "h" ) ) as orbital
+
+  ws1 = ( " " / %x09 )
+
+  # -- embedded math and text ------------------------------------------------
+
+  ## Backtick-delimited Plurimath/AsciiMath source (delimiters stripped
+  ## by the transform).
+  embedded_math = "`" ( until "`" ) as math_source "`"
+
+  ## Free-form text uses "..." delimiters, matching AsciiMath.
+
+  # -- molecule annotations ---------------------------------------------------
+
+  ## @name("aspirin") @cas("50-78-2") @meta("k","v") — the annotation
+  ## vocabulary rides the molecule.
+  annotated_molecule = molecule 1*( [ ws1 ] ( metadata_annotation / simple_annotation ) )
+
+  metadata_annotation = "@meta(" "\"" until "\"" "\"" "," "\"" until "\"" "\"" ")"
+
+  simple_annotation = "@" ( known_annotation_type / property_name ) "(" "\"" until "\"" "\"" ")"
+
+  known_annotation_type = ( "name" / "title" / "formula" / "label" / "inchi" / "smiles" / "cas" / "iupac" / "cid" / "chebi" )
+
+  property_name = 1*( %x61-7A )
+
   test formula {
     accept "H_2O"
     accept "H2O"
     accept "Ca^2+"
     accept "SO_4^2-"
     accept "C1-C-C-C-C-C1"
+    accept "C12-C-C1-C2"
     accept "CH_3-CH_2-OH"
     accept "2H_2 + O_2 -> 2H_2O"
     accept "N_2 + 3H_2 <=>[Fe][400C] 2NH_3"
+    accept "A ->[heat] B ->[cool] C"
+    accept "A -> B -> C -> D"
     accept "Ca(OH)_2"
-    accept "CC(=O)OC1=CC=CC=C1C(=O)O"
-    accept "Ca^2+ + CO_3^2- -> CaCO_3"
     accept "Fe(IV)"
     accept "_14C"
     accept "^14C"
+    accept "CC(=O)OC1=CC=CC=C1C(=O)O"
+    accept "Ca^2+ + CO_3^2- -> CaCO_3"
+    accept "(R)-CH_3CH(OH)COOH"
+    accept "C@(10,20)@R@m(2)@t(\"C1\")"
+    accept "1s^2 2s^2 2p^6"
+    accept "`x^2`"
+    accept "\"nitrogen gas\""
+    accept "crystal[NaCl](a=5.64,sg=Fm-3m){Na@f(0,0,0)}"
+    accept "spectrum[nmr](type=1H){1.2: 3H s \"CH3\"}"
+    accept "calc(b3lyp){energy: -234.5}"
+    accept "zmatrix{ C1 H2 C1 1.09 }"
+    accept "mechanism{ step1: A -> B }"
+    accept "H_2O @name(\"water\") @cas(\"7732-18-5\")"
+    accept "H_2O @meta(\"source\",\"handbook\")"
+    accept "  H_2O  "
     reject ""
     reject "???"
+    reject "H_"
     reject "C(=O"
     reject "+ H_2O"
-    reject "H_"
+    reject "crystal[NaCl"
+    reject "zmatrix{ C1 "
+    reject "@name(\"x\") H_2O"
   }
 }

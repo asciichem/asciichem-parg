@@ -5,16 +5,40 @@ on:
   push:
     branches: [main]
 
+env:
+  # Pinned so grammar acceptance and corpus parity are reproducible;
+  # bump deliberately with a re-run of the suites.
+  PARSANOL_REF: 9230b7e
+  PUBID_GRAMMAR_REF: 836ae8a
+
 jobs:
-  acceptance:
+  grammar:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Clone parsanol-ruby (PARG compiler, pinned)
+        run: git clone https://github.com/parsanol/parsanol-ruby ../parsanol-ruby
+      - run: git -C ../parsanol-ruby checkout "$PARSANOL_REF"
+      - name: Clone pubid-grammar (selfhost artifact, per upstream convention)
+        run: git clone --depth 1 https://github.com/pubid/pubid-grammar ../pubid-grammar
+      - name: Clone asciichem-tests (conformance corpus)
+        uses: actions/checkout@v7
+        with:
+          repository: asciichem/asciichem-tests
+          path: asciichem-tests
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
-      # Pinned to the version the grammar was validated against; bump
-      # deliberately with a re-run of the acceptance suite.
-      - run: gem install parsanol -v 1.3.94
+      - name: Bundle the PARG compiler
+        run: cd ../parsanol-ruby && bundle install --path vendor/bundle
       - name: Grammar acceptance suite (compile + inline tests)
-        run: parsanol parg test grammar/asciichem.parg
+        run: |
+          cd ../parsanol-ruby
+          PG_ARTIFACT="$GITHUB_WORKSPACE/../pubid-grammar/artifacts/parg.json" \
+            bundle exec ruby -e 'exit Parsanol::PARG::CLI.new(["test", File.join(Dir.pwd, "..", "asciichem-parg", "grammar", "asciichem.parg")]).run'
+      - name: Corpus parity (parse/reject vs shared corpus)
+        run: |
+          cd ../parsanol-ruby
+          PG_ARTIFACT="$GITHUB_WORKSPACE/../pubid-grammar/artifacts/parg.json" \
+            bundle exec ruby "$GITHUB_WORKSPACE/scripts/corpus-parity.rb" \
+            "$GITHUB_WORKSPACE/asciichem-tests/corpus/fixtures"
