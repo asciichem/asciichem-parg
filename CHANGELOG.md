@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **P1b — DSL-shaped captures (0.3.1)**: every structural rule
+  (molecule, reaction, group, annotated_molecule, cascade segments,
+  annotation items) is captured, so the artifact tree adapts to the
+  exact shapes asciichem-ruby's shared TransformRules consume — the
+  PARG engine passes the full asciichem-ruby suite (2024 examples)
+  byte-identically to the reference parser. Closers are captured
+  with keys and beyond-formula captures hold content only (no
+  opening brackets), matching the DSL. The engine-side adapter
+  unwraps the captured wrappers; unwrapping exists because captured
+  sequences with embedded repetitions yield arrays and uncaptured
+  sequence rules drop captures inside repetitions (both filed
+  upstream to parsanol-ruby).
+
 ### Added
 
 - **P1a — full grammar**: the complete AsciiChem syntax as PARG —
