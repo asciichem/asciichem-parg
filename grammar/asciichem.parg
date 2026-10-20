@@ -1,4 +1,4 @@
-grammar AsciiChemCore version "0.3.1" {
+grammar AsciiChemCore version "0.4.0" {
   ## The AsciiChem syntax — full grammar, DSL-shaped captures
   ## (P1b, asciichem-ruby#96). Capture names and nesting mirror
   ## GrammarRules exactly so the PARG tree adapts to the same shape
