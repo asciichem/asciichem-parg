@@ -111,11 +111,15 @@ grammar AsciiChemCore version "0.3.1" {
 
   ## Atom annotations, DSL order: coordinates, parity, multiplicity,
   ## title, fractional coordinates.
-  atom_annotation = [ coordinate_annotation ] [ parity_annotation ] [ multiplicity_annotation ] [ title_annotation ] [ fractional_annotation ]
+  atom_annotation = [ coordinate_annotation ] [ parity_annotation ] [ chirality_annotation ] [ multiplicity_annotation ] [ title_annotation ] [ fractional_annotation ]
 
   coordinate_annotation = "@(" ( float_number ) as x2 "," ( float_number ) as y2 [ "," ( float_number ) as z2 ] ( ")" ) as coord_close
 
   parity_annotation = "@" ( "R" / "S" ) as atom_parity
+
+  ## Tetrahedral parity classes (SMILES @/@@ semantics, spelled
+  ## explicitly beside the CIP @R/@S label).
+  chirality_annotation = "@" ( "TH1" / "TH2" ) as chirality
 
   multiplicity_annotation = "@m(" ( 1*(%x30-39) ) as spin_multiplicity ( ")" ) as spin_close
 
@@ -129,7 +133,7 @@ grammar AsciiChemCore version "0.3.1" {
 
   ## Bonds capture under their kind name (transform contract), longest
   ## first so `##` beats `#`; `->` is reserved for reactions.
-  bond = ( "##" as quadruple ) / ( ">-" as wedge ) / ( "-<" as hash ) / ( "~>" as dative ) / ( "~~" as wavy ) / ( "#" as triple ) / ( "=" as double ) / ( "-" as single )
+  bond = ( "/" as direction_up ) / ( "\\" as direction_down ) / ( "##" as quadruple ) / ( ">-" as wedge ) / ( "-<" as hash ) / ( "~>" as dative ) / ( "~~" as wavy ) / ( "#" as triple ) / ( "=" as double ) / ( "-" as single )
 
   # -- beyond-formulas constructs -----------------------------------------
 
